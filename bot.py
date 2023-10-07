@@ -66,7 +66,8 @@ async def buy(message: types.Message):
   if row:
     pass
   else:
-    await bot.send_message(chat_id=5118955808, text=f"""Новый пользователь в боте!
+    for id in admins_id:
+        await bot.send_message(chat_id=id, text=f"""Новый пользователь в боте!
   
   Юзернейм: @{message.from_user.username}
   Айди: {message.from_user.id}
@@ -83,13 +84,13 @@ async def buy(message: types.Message):
       if not b:
         await message.answer("Данный счёт не найден!")
       else:
-        merchant_id = merchant_id1 # ID Вашего магазина
-        amount = b[0] # Сумма к оплате
-        currency = 'RUB'  # Валюта заказа
-        secret = one # Секретный ключ №1
-        order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}'  # Идентификатор заказа в Вашей системе
-        desc = b[1] # Описание заказа
-        lang = 'ru'  # Язык формы
+        merchant_id = merchant_id1 
+        amount = b[0] 
+        currency = 'RUB' 
+        secret = one 
+        order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}' 
+        desc = b[1] 
+        lang = 'ru' 
         sign = f':'.join([
           str(merchant_id),
           str(amount),
@@ -125,9 +126,10 @@ async def buy(message: types.Message):
 Описание: {b[1]}
             """, reply_markup=buy)
   else:
-        await message.answer("""
-Вам нужно перейти по реферальной ссылке
-        """, parse_mode="HTML")
+      keyboard = InlineKeyboardMarkup()
+      for count in donations:
+          keyboard.add(InlineKeyboardButton(f"{count}₽", callback_data=str(count)))
+      await message.answer("Выберите сумму доната:", reply_markup=keyboard)
   conn.commit()
         
 @dp.message_handler(Command("add"))
@@ -166,9 +168,59 @@ async def button_callback_handler(callback_query: types.CallbackQuery):
         if '<span class="mb-2">Заказ просрочен. Оплатить заказ необходимо было' in response.content.decode():
         	await message.answer("Счёт просрочен.")
         elif '<span class="mb-2">Заказ успешно был оплачен<span>' in response.content.decode():
-        	await message.answer("Данный счёт был оплачен")
+        	await message.delete()
+        	for id in admins_id:
+        	    await bot.send_message(chat_id=id, text=f"{callback_query.from_user.get_mention(as_html=True)} Успешно оплатил счёт\n\n{row[0]}", parse_mode="HTML")
+        	await message.answer("Данный счёт был оплачен! Спасибо за оплату. Администраторы оповещены")
         else:	
             await message.answer("Данный счёт ожидает оплаты")
+    else:
+        try:
+            data = int(data)
+        except:
+            await callback_query.answer("Ты откуда вообще взял этот каллбак?")
+            return
+        merchant_id = merchant_id1 
+        amount = data
+        currency = 'RUB' 
+        secret = one 
+        order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}' 
+        desc = "Донат"
+        lang = 'ru' 
+        sign = f':'.join([
+          str(merchant_id),
+          str(amount),
+          str(currency),
+          str(secret),
+          str(order_id)
+        ])
+        params = {
+          'merchant_id': merchant_id,
+          'amount': amount,
+          'currency': currency,
+          'order_id': order_id,
+          'sign': hashlib.sha256(sign.encode('utf-8')).hexdigest(),
+          'desc': desc,
+          'lang': lang
+        }
+        URL = "https://aaio.io/merchant/pay?" + urlencode(params)
+        response = requests.get(URL)
+        if '<span class="mb-2">Заказ просрочен. Оплатить заказ необходимо было' in response.content.decode():
+          await message.answer("Счёт просрочен.")
+        elif '<span class="mb-2">Заказ успешно был оплачен<span>' in response.content.decode():
+          await message.answer("Данный счёт уже был оплачен")
+        else:
+          id = await help.get_id()
+          c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
+          conn.commit()
+          buy = InlineKeyboardMarkup()
+          buy.add(InlineKeyboardButton("Оплатить счёт", url=URL)).add(InlineKeyboardButton("Проверить статус счёта", callback_data=f"buy_{id}"))
+          await message.answer(f"""
+Счёт на оплату
+  
+Цена: {data}
+Описание: Донат
+            """, reply_markup=buy)
             
 class rass(StatesGroup):
     getmsg = State()
