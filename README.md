@@ -3,7 +3,7 @@
 
 Инструкция по установке:
 1. Скачайте файлы бота с помощью git clone или с помощью zip архива
-2. Скачайте библиотеку aiogram: pip install aiogram==2.5.1
+2. Скачайте библиотеки: pip install aiogram==2.5.1 asyncio logging requests
 3. Заполните свои данные в файле config.py
 4. Запустите бота и радуйтесь
 
