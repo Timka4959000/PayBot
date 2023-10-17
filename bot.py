@@ -7,6 +7,7 @@ requirements = [
         "requests",
 	"--upgrade"
 ]
+pip.main(requirements)
 import logging
 import sqlite3
 from aiogram import Bot, Dispatcher, types
