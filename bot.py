@@ -1,3 +1,12 @@
+import pip
+requirements = [
+	"install",
+	"logging",
+	"aiogram==2.25.1",
+        "asyncio",
+        "requests",
+	"--upgrade"
+]
 import logging
 import sqlite3
 from aiogram import Bot, Dispatcher, types
