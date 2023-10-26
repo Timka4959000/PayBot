@@ -1,11 +1,11 @@
 import pip
 requirements = [
-	"install",
-	"logging",
-	"aiogram==2.25.1",
-        "asyncio",
-        "requests",
-	"--upgrade"
+    "install",
+    "logging",
+    "aiogram==2.25.1",
+    "asyncio",
+    "requests",
+    "--upgrade"
 ]
 pip.main(requirements)
 import logging
@@ -31,6 +31,8 @@ import requests
 from datetime import datetime
 from aiogram.utils.exceptions import *
 from config import *
+from aiogram.types import InputTextMessageContent, InlineQueryResultArticle, InlineKeyboardButton, InlineKeyboardMarkup
+import hashlib
 
 logging.basicConfig(level=logging.INFO)
 
@@ -51,14 +53,14 @@ conn.commit()
 
 class help:
     async def get_id():
-	    id = random.randint(1, 1000000000)
-	    c.execute(f"SELECT id FROM pay WHERE id={id}")
-	    row = c.fetchone()
-	    if row:
-	    	await help.get_id()
-	    else:
-	        return id 
-	      
+        id = random.randint(1, 1000000000)
+        c.execute(f"SELECT id FROM pay WHERE id={id}")
+        row = c.fetchone()
+        if row:
+            await help.get_id()
+        else:
+            return id
+
 def uids():
     rows = c.execute("SELECT id FROM users").fetchall()
     c.execute("SELECT * FROM users")
@@ -68,7 +70,7 @@ def uids():
     for i in range(countr):
         print(rows[i][0])
     c.commit()
-	
+
 @dp.message_handler(Command("start"))
 async def buy(message: types.Message):
   c.execute(f"SELECT id FROM users WHERE id={message.from_user.id}")
@@ -79,9 +81,9 @@ async def buy(message: types.Message):
     for id in admins_id:
         await bot.send_message(chat_id=id, text=f"""Новый пользователь в боте!
   
-  Юзернейм: @{message.from_user.username}
-  Айди: {message.from_user.id}
-  Упоминание: {message.from_user.mention}""")
+Юзернейм: @{message.from_user.username}
+Айди: {message.from_user.id}
+Упоминание: {message.from_user.get_mention(as_html=True)}""", parse_mode="HTML")
     c.execute('INSERT INTO users (id) values (?)', (message.from_user.id,))
   a = message.get_args()
   if a:
@@ -94,13 +96,13 @@ async def buy(message: types.Message):
       if not b:
         await message.answer("Данный счёт не найден!")
       else:
-        merchant_id = merchant_id1 
-        amount = b[0] 
-        currency = 'RUB' 
-        secret = one 
-        order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}' 
-        desc = b[1] 
-        lang = 'ru' 
+        merchant_id = merchant_id1
+        amount = b[0]
+        currency = 'RUB'
+        secret = one
+        order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}'
+        desc = b[1]
+        lang = 'ru'
         sign = f':'.join([
           str(merchant_id),
           str(amount),
@@ -118,21 +120,22 @@ async def buy(message: types.Message):
           'lang': lang
         }
         URL = "https://aaio.io/merchant/pay?" + urlencode(params)
-        response = requests.get(URL)
-        if '<span class="mb-2">Заказ просрочен. Оплатить заказ необходимо было' in response.content.decode():
-          await message.answer("Счёт просрочен.")
-        elif '<span class="mb-2">Заказ успешно был оплачен<span>' in response.content.decode():
-          await message.answer("Данный счёт уже был оплачен")
-        else:
-          id = await help.get_id()
-          c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
-          conn.commit()
-          buy = InlineKeyboardMarkup()
-          buy.add(InlineKeyboardButton("Оплатить счёт", url=URL)).add(InlineKeyboardButton("Проверить статус счёта", callback_data=f"buy_{id}"))
-          await message.answer(f"""
+        id = await help.get_id()
+        c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
+        conn.commit()
+        buy = InlineKeyboardMarkup()
+        buy.add(
+    InlineKeyboardButton("Оплатить", url=URL),
+    InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
+).add(
+    InlineKeyboardButton("------------", callback_data="-")
+).add(
+    InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
+        )
+        await message.answer(f"""
 Счёт на оплату
   
-Цена: {b[0]}
+Цена: {b[0]}₽
 Описание: {b[1]}
             """, reply_markup=buy)
   else:
@@ -157,7 +160,7 @@ async def add_pay(message: types.Message):
         me = await bot.get_me()
         await message.answer(f"""Счёт успешно создан.
 
-Сумма: {count}
+Сумма: {count}₽
 Описание: {capt}
 Айди: {id}
 Ссылка, чтобы делится: <code>t.me/{me.username}?start=Pay_{id}</code>
@@ -165,6 +168,90 @@ async def add_pay(message: types.Message):
     else:
         await message.reply("Вы не админ!")
     conn.commit()
+
+@dp.inline_handler()
+async def test(query):
+    global capt, count
+    keyboard = InlineKeyboardMarkup()
+    if query.from_user.id in admins_id:
+        me = await bot.get_me()
+        text1 = query.query.split(" ")
+        if text1 == ['']:
+            return
+        try:
+            count = query.query.split(maxsplit=1)[0]
+        except:
+            return
+        try:
+            if not text1[1]:
+                return
+            if len(text1[1]) == 0:
+                return
+        except:
+            pass
+        try:
+            capt = query.query.split(maxsplit=1)[1]
+        except:
+            return
+        id = await help.get_id()
+        c.execute('INSERT INTO pay (caption, count, id) values (?, ?, ?)', (capt, count, id))
+        conn.commit()
+        merchant_id = merchant_id1
+        amount = count
+        currency = 'RUB'
+        secret = one
+        order_id = f'{query.from_user.id}_{random.randint(1, 10000000000)}'
+        desc = capt
+        lang = 'ru'
+        sign = f':'.join([
+            str(merchant_id),
+            str(amount),
+            str(currency),
+            str(secret),
+            str(order_id)
+        ])
+        params = {
+            'merchant_id': merchant_id,
+            'amount': amount,
+            'currency': currency,
+            'order_id': order_id,
+            'sign': hashlib.sha256(sign.encode('utf-8')).hexdigest(),
+            'desc': desc,
+            'lang': lang
+        }
+        URL = "https://aaio.io/merchant/pay?" + urlencode(params)
+        response = requests.get(URL)
+        id = await help.get_id()
+        c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
+        conn.commit()
+        text_to_send = f"""
+Счёт на оплату
+
+Цена: {count}₽
+Описание: {capt}
+                    """
+        keyboard.add(
+    InlineKeyboardButton("Оплатить", url=URL),
+    InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
+).add(
+    InlineKeyboardButton("------------", callback_data="-")
+).add(
+    InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
+        )
+    else:
+        text_to_send = "Вы не админ!"
+    text=query.query or "."
+    result = hashlib.md5(text.encode()).hexdigest()
+    imc = "."
+
+    item = InlineQueryResultArticle(
+        title="Создать счёт",
+        description="Ипользование: [сумма] [описание]",
+        id=result,
+        reply_markup=keyboard,
+        input_message_content=InputTextMessageContent(f"{text_to_send}")
+    )
+    await query.answer([item])
 
 @dp.callback_query_handler(lambda c: True)
 async def button_callback_handler(callback_query: types.CallbackQuery):
@@ -176,19 +263,19 @@ async def button_callback_handler(callback_query: types.CallbackQuery):
         row = c.fetchone()
         response = requests.get(row[0])
         if '<span class="mb-2">Заказ просрочен. Оплатить заказ необходимо было' in response.content.decode():
-        	await message.answer("Счёт просрочен.")
+            await callback_query.answer("Счёт просрочен.")
         elif '<span class="mb-2">Заказ успешно был оплачен<span>' in response.content.decode():
-        	await message.delete()
-        	for id in admins_id:
-        	    await bot.send_message(chat_id=id, text=f"{callback_query.from_user.get_mention(as_html=True)} Успешно оплатил счёт\n\n{row[0]}", parse_mode="HTML")
-        	await message.answer("Данный счёт был оплачен! Спасибо за оплату. Администраторы оповещены")
+            await message.delete()
+            for id in admins_id:
+                await bot.send_message(chat_id=id, text=f"{callback_query.from_user.get_mention(as_html=True)} Успешно оплатил счёт\n\n{row[0]}", parse_mode="HTML")
+            await callback_query.answer("Данный счёт был оплачен! Спасибо за оплату. Администраторы оповещены")
         else:	
-            await message.answer("Данный счёт ожидает оплаты")
+            await callback_query.answer("Данный счёт ожидает оплаты")
     else:
         try:
             data = int(data)
         except:
-            await callback_query.answer("Ты откуда вообще взял этот каллбак?")
+            await callback_query.answer("Ай! Не трогай, извращенец!")
             return
         merchant_id = merchant_id1 
         amount = data
@@ -224,11 +311,18 @@ async def button_callback_handler(callback_query: types.CallbackQuery):
           c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
           conn.commit()
           buy = InlineKeyboardMarkup()
-          buy.add(InlineKeyboardButton("Оплатить счёт", url=URL)).add(InlineKeyboardButton("Проверить статус счёта", callback_data=f"buy_{id}"))
+          buy.add(
+    InlineKeyboardButton("Оплатить", url=URL),
+    InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
+).add(
+    InlineKeyboardButton("------------", callback_data="-")
+).add(
+    InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
+        )
           await message.answer(f"""
 Счёт на оплату
   
-Цена: {data}
+Цена: {data}₽
 Описание: Донат
             """, reply_markup=buy)
             
