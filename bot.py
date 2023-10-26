@@ -1,10 +1,13 @@
 import pip
+
 requirements = [
     "install",
     "logging",
     "aiogram==2.25.1",
     "asyncio",
     "requests",
+    "utils",
+    "aiohttp",
     "--upgrade"
 ]
 pip.main(requirements)
@@ -33,6 +36,17 @@ from aiogram.utils.exceptions import *
 from config import *
 from aiogram.types import InputTextMessageContent, InlineQueryResultArticle, InlineKeyboardButton, InlineKeyboardMarkup
 import hashlib
+import asyncio
+import html
+import subprocess
+import tempfile
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+from typing import Optional, Tuple, Union
+from time import perf_counter
+from traceback import print_exc
+import aiohttp
+import shutil
 
 logging.basicConfig(level=logging.INFO)
 
@@ -51,6 +65,7 @@ c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER)')
 
 conn.commit()
 
+
 class help:
     async def get_id():
         id = random.randint(1, 1000000000)
@@ -61,90 +76,138 @@ class help:
         else:
             return id
 
+
 def uids():
     rows = c.execute("SELECT id FROM users").fetchall()
     c.execute("SELECT * FROM users")
     countr = int(len(c.fetchall()))
     print(countr)
-    return(countr)
+    return (countr)
     for i in range(countr):
         print(rows[i][0])
     c.commit()
 
+async def aexec(code, *args, timeout=None):
+    exec(
+        f"async def __todo(message, *args):\n"
+        + "".join(f"\n {_l}" for _l in code.split("\n"))
+    )
+    f = StringIO()
+    with redirect_stdout(f):
+        await asyncio.wait_for(locals()["__todo"](*args), timeout=timeout)
+
+    return f.getvalue()
+
+async def shell_exec(
+    command: str,
+    timeout: Optional[Union[int, float]] = None,
+    stdout=asyncio.subprocess.PIPE,
+    stderr=asyncio.subprocess.PIPE,
+) -> Tuple[int, str, str]:
+    """Executes shell command and returns tuple with return code, decoded stdout and stderr"""
+    process = await asyncio.create_subprocess_shell(
+        cmd=command, stdout=stdout, stderr=stderr, shell=True, executable=None
+    )
+
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout)
+    except asyncio.exceptions.TimeoutError as e:
+        process.kill()
+        raise e
+
+    return process.returncode, stdout.decode(), stderr.decode()
+
+async def paste_neko(code: str):
+    try:
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.post(
+                "https://nekobin.com/api/documents",
+                json={"content": code},
+            ) as paste:
+                paste.raise_for_status()
+                result = await paste.json()
+    except Exception:
+        return "Pasting failed"
+    else:
+        return f"nekobin.com/{result['result']['key']}.py"
+
+
 @dp.message_handler(Command("start"))
 async def buy(message: types.Message):
-  c.execute(f"SELECT id FROM users WHERE id={message.from_user.id}")
-  row = c.fetchone()
-  if row:
-    pass
-  else:
-    for id in admins_id:
-        await bot.send_message(chat_id=id, text=f"""Новый пользователь в боте!
-  
+    c.execute(f"SELECT id FROM users WHERE id={message.from_user.id}")
+    row = c.fetchone()
+    if row:
+        pass
+    else:
+        for id in admins_id:
+            await bot.send_message(chat_id=id, text=f"""Новый пользователь в боте!
+
 Юзернейм: @{message.from_user.username}
 Айди: {message.from_user.id}
 Упоминание: {message.from_user.get_mention(as_html=True)}""", parse_mode="HTML")
-    c.execute('INSERT INTO users (id) values (?)', (message.from_user.id,))
-  a = message.get_args()
-  if a:
-    if a == "decline":
-      await message.answer("Оплата отменена или не прошла.")
-    elif "Pay_" in a:
-      id = a.replace("Pay_", "")
-      c.execute(f"SELECT count, caption FROM pay WHERE id={id}")
-      b = c.fetchone()
-      if not b:
-        await message.answer("Данный счёт не найден!")
-      else:
-        merchant_id = merchant_id1
-        amount = b[0]
-        currency = 'RUB'
-        secret = one
-        order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}'
-        desc = b[1]
-        lang = 'ru'
-        sign = f':'.join([
-          str(merchant_id),
-          str(amount),
-          str(currency),
-          str(secret),
-          str(order_id)
-        ])
-        params = {
-          'merchant_id': merchant_id,
-          'amount': amount,
-          'currency': currency,
-          'order_id': order_id,
-          'sign': hashlib.sha256(sign.encode('utf-8')).hexdigest(),
-          'desc': desc,
-          'lang': lang
-        }
-        URL = "https://aaio.io/merchant/pay?" + urlencode(params)
-        id = await help.get_id()
-        c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
-        conn.commit()
-        buy = InlineKeyboardMarkup()
-        buy.add(
-    InlineKeyboardButton("Оплатить", url=URL),
-    InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
-).add(
-    InlineKeyboardButton("------------", callback_data="-")
-).add(
-    InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
-        )
-        await message.answer(f"""
+        c.execute('INSERT INTO users (id) values (?)', (message.from_user.id,))
+    a = message.get_args()
+    if a:
+        if a == "decline":
+            await message.answer("Оплата отменена или не прошла.")
+        elif "Pay_" in a:
+            id = a.replace("Pay_", "")
+            c.execute(f"SELECT count, caption FROM pay WHERE id={id}")
+            b = c.fetchone()
+            if not b:
+                await message.answer("Данный счёт не найден!")
+            else:
+                merchant_id = merchant_id1
+                amount = b[0]
+                currency = 'RUB'
+                secret = one
+                order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}'
+                desc = b[1]
+                lang = 'ru'
+                sign = f':'.join([
+                    str(merchant_id),
+                    str(amount),
+                    str(currency),
+                    str(secret),
+                    str(order_id)
+                ])
+                params = {
+                    'merchant_id': merchant_id,
+                    'amount': amount,
+                    'currency': currency,
+                    'order_id': order_id,
+                    'sign': hashlib.sha256(sign.encode('utf-8')).hexdigest(),
+                    'desc': desc,
+                    'lang': lang
+                }
+                URL = "https://aaio.io/merchant/pay?" + urlencode(params)
+                id = await help.get_id()
+                c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
+                conn.commit()
+                buy = InlineKeyboardMarkup()
+                buy.add(
+                    InlineKeyboardButton("Оплатить", url=URL),
+                    InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
+                ).add(
+                    InlineKeyboardButton("------------", callback_data="-")
+                ).add(
+                    InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
+                )
+                await message.answer(f"""
 Счёт на оплату
-  
-Цена: {b[0]}₽
-Описание: {b[1]}
+
+📝 Информация о счёте:
+├ Цена: {b[0]}₽
+└ Описание: {b[1]}
             """, reply_markup=buy)
-  else:
-      keyboard = InlineKeyboardMarkup()
-      for count in donations:
-          keyboard.add(InlineKeyboardButton(f"{count}₽", callback_data=str(count)))
-      await message.answer("Выберите сумму доната:", reply_markup=keyboard)
-  conn.commit()
-        
+    else:
+        keyboard = InlineKeyboardMarkup()
+        for count in donations:
+            keyboard.add(InlineKeyboardButton(f"{count}₽", callback_data=str(count)))
+        await message.answer("Выберите сумму доната:", reply_markup=keyboard)
+    conn.commit()
+
+
 @dp.message_handler(Command("add"))
 async def add_pay(message: types.Message):
     text = message.text.split()
@@ -168,6 +231,7 @@ async def add_pay(message: types.Message):
     else:
         await message.reply("Вы не админ!")
     conn.commit()
+
 
 @dp.inline_handler()
 async def test(query):
@@ -227,20 +291,21 @@ async def test(query):
         text_to_send = f"""
 Счёт на оплату
 
-Цена: {count}₽
-Описание: {capt}
+📝 Информация о счёте:
+├ Цена: {count}₽
+└ Описание: {capt}
                     """
         keyboard.add(
-    InlineKeyboardButton("Оплатить", url=URL),
-    InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
-).add(
-    InlineKeyboardButton("------------", callback_data="-")
-).add(
-    InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
+            InlineKeyboardButton("Оплатить", url=URL),
+            InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
+        ).add(
+            InlineKeyboardButton("------------", callback_data="-")
+        ).add(
+            InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
         )
     else:
         text_to_send = "Вы не админ!"
-    text=query.query or "."
+    text = query.query or "."
     result = hashlib.md5(text.encode()).hexdigest()
     imc = "."
 
@@ -252,6 +317,7 @@ async def test(query):
         input_message_content=InputTextMessageContent(f"{text_to_send}")
     )
     await query.answer([item])
+
 
 @dp.callback_query_handler(lambda c: True)
 async def button_callback_handler(callback_query: types.CallbackQuery):
@@ -267,9 +333,11 @@ async def button_callback_handler(callback_query: types.CallbackQuery):
         elif '<span class="mb-2">Заказ успешно был оплачен<span>' in response.content.decode():
             await message.delete()
             for id in admins_id:
-                await bot.send_message(chat_id=id, text=f"{callback_query.from_user.get_mention(as_html=True)} Успешно оплатил счёт\n\n{row[0]}", parse_mode="HTML")
+                await bot.send_message(chat_id=id,
+                                       text=f"{callback_query.from_user.get_mention(as_html=True)} Успешно оплатил счёт\n\n{row[0]}",
+                                       parse_mode="HTML")
             await callback_query.answer("Данный счёт был оплачен! Спасибо за оплату. Администраторы оповещены")
-        else:	
+        else:
             await callback_query.answer("Данный счёт ожидает оплаты")
     else:
         try:
@@ -277,58 +345,61 @@ async def button_callback_handler(callback_query: types.CallbackQuery):
         except:
             await callback_query.answer("Ай! Не трогай, извращенец!")
             return
-        merchant_id = merchant_id1 
+        merchant_id = merchant_id1
         amount = data
-        currency = 'RUB' 
-        secret = one 
-        order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}' 
+        currency = 'RUB'
+        secret = one
+        order_id = f'{message.message_id}_{message.from_user.id}_{random.randint(1, 10000000000)}'
         desc = "Донат"
-        lang = 'ru' 
+        lang = 'ru'
         sign = f':'.join([
-          str(merchant_id),
-          str(amount),
-          str(currency),
-          str(secret),
-          str(order_id)
+            str(merchant_id),
+            str(amount),
+            str(currency),
+            str(secret),
+            str(order_id)
         ])
         params = {
-          'merchant_id': merchant_id,
-          'amount': amount,
-          'currency': currency,
-          'order_id': order_id,
-          'sign': hashlib.sha256(sign.encode('utf-8')).hexdigest(),
-          'desc': desc,
-          'lang': lang
+            'merchant_id': merchant_id,
+            'amount': amount,
+            'currency': currency,
+            'order_id': order_id,
+            'sign': hashlib.sha256(sign.encode('utf-8')).hexdigest(),
+            'desc': desc,
+            'lang': lang
         }
         URL = "https://aaio.io/merchant/pay?" + urlencode(params)
         response = requests.get(URL)
         if '<span class="mb-2">Заказ просрочен. Оплатить заказ необходимо было' in response.content.decode():
-          await message.answer("Счёт просрочен.")
+            await message.answer("Счёт просрочен.")
         elif '<span class="mb-2">Заказ успешно был оплачен<span>' in response.content.decode():
-          await message.answer("Данный счёт уже был оплачен")
+            await message.answer("Данный счёт уже был оплачен")
         else:
-          id = await help.get_id()
-          c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
-          conn.commit()
-          buy = InlineKeyboardMarkup()
-          buy.add(
-    InlineKeyboardButton("Оплатить", url=URL),
-    InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
-).add(
-    InlineKeyboardButton("------------", callback_data="-")
-).add(
-    InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
-        )
-          await message.answer(f"""
+            id = await help.get_id()
+            c.execute('INSERT INTO pay2 (id, url) values (?, ?)', (id, URL))
+            conn.commit()
+            buy = InlineKeyboardMarkup()
+            buy.add(
+                InlineKeyboardButton("Оплатить", url=URL),
+                InlineKeyboardButton("Статус", callback_data=f"buy_{id}")
+            ).add(
+                InlineKeyboardButton("------------", callback_data="-")
+            ).add(
+                InlineKeyboardButton("Исходник бота [github]", url="https://github.com/Timka4959000/PayBot")
+            )
+            await message.answer(f"""
 Счёт на оплату
-  
-Цена: {data}₽
-Описание: Донат
+
+📝 Информация о счёте:
+├ Цена: {data}₽
+└ Описание: не определено
             """, reply_markup=buy)
-            
+
+
 class rass(StatesGroup):
     getmsg = State()
     sendmsg = State()
+
 
 @dp.message_handler(commands=['alert'])
 async def sends(message):
@@ -338,6 +409,7 @@ async def sends(message):
         await bot.send_message(message.from_user.id, 'Enter password:')
         uids()
         await rass.getmsg.set()
+
 
 @dp.message_handler(state=rass.getmsg)
 async def st2(message: types.Message, state: FSMContext):
@@ -352,6 +424,7 @@ async def st2(message: types.Message, state: FSMContext):
     else:
         await bot.send_message(message.from_user.id, 'Ошибка!')
         await state.finish()
+
 
 @dp.message_handler(state=rass.sendmsg)
 async def st2(message: types.Message, state: FSMContext):
@@ -390,6 +463,98 @@ async def st2(message: types.Message, state: FSMContext):
             await bot.send_document(id, open(f"alert_{now}.txt", 'rb'), caption=f'Отчет по рассылке.')
         os.remove(f"alert_{now}.txt")
         await state.finish()
+
+@dp.message_handler(commands=["py"])
+async def python_exec(message: types.Message):
+    code_result = (
+        "<b>🌐 Language:</b>\n"
+        "<code>Python</code>\n\n"
+        "<b>💻 Code:</b>\n"
+        '<pre language="python">{code}</pre>\n\n'
+        "{result}"
+    )
+    if message.from_user.id not in admins_id:
+        await message.answer('ты не админ')
+        return
+    code = message.text.split(maxsplit=1)[1]
+    exe = await message.reply("<b>🔃 Executing...</b>", parse_mode="HTML")
+    try:
+        start_time = perf_counter()
+        result = await aexec(code, message, timeout=60)
+        stop_time = perf_counter()
+        await bot.delete_message(message.chat.id, exe.message_id)
+        if len(result) > 3072:
+            result = html.escape(await paste_neko(result))
+        else:
+            result = f"<code>{html.escape(result)}</code>"
+
+        return await message.reply(
+            code_result.format(
+                code=code,
+                result=f"<b>✨ Result</b>:\n"
+                f"{result}\n"
+                f"<b>Completed in {round(stop_time - start_time, 5)}s.</b>",
+            ),
+            parse_mode="HTML"
+        )
+    except asyncio.TimeoutError:
+        return await message.reply(
+            code_result.format(
+                language="Python",
+                pre_language="python",
+                code=code,
+                result="<b>❌ Timeout Error!</b>",
+            ),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        err = StringIO()
+        with redirect_stderr(err):
+            print_exc()
+
+        return await message.reply(
+            code_result.format(
+                language="Python",
+                pre_language="python",
+                code=code,
+                result=f"<b>❌ {e.__class__.__name__}: {e}</b>\n"
+                f"Traceback: {html.escape(await paste_neko(err.getvalue()))}",
+            ),
+            parse_mode="HTML"
+        )
+
+@dp.message_handler(commands=["shell"])
+async def shell(message: types.Message):
+    if message.from_user.id not in admins_id:
+        await message.answer('ты не админ')
+        return
+    exe = await message.reply("<b>🔃 Executing...</b>", parse_mode="HTML")
+    cmd_text = message.text.split(maxsplit=1)[1]
+    text = (
+        "<b>🌐 Language:</b>\n<code>Shell</code>\n\n"
+        "<b>💻 Command:</b>\n"
+        f'<pre language="sh">{html.escape(cmd_text)}</pre>\n\n'
+    )
+
+    try:
+        start_time = perf_counter()
+        rcode, stdout, stderr = await shell_exec(
+            command=cmd_text, timeout=100
+        )
+    except asyncio.exceptions.TimeoutError:
+        text += (
+            "<b>❌ Error!</b>\n"
+            f"<b>Timeout expired (100 seconds)</b>"
+        )
+    else:
+        stop_time = perf_counter()
+        text += (
+            "<b>✨ Result</b>:\n"
+            f"<code>{html.escape(stderr or stdout)}</code>"
+        )
+        text += f"<b>Completed in {round(stop_time - start_time, 5)} seconds with code {rcode}</b>"
+    await bot.delete_message(message.chat.id, exe.message_id)
+    await message.reply(text, parse_mode="HTML")
 
 if __name__ == '__main__':
     from aiogram import executor
